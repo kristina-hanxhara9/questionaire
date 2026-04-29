@@ -1,0 +1,16 @@
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.env
+.env.local
+output/
+tests/
+docs/
+*.md
+!README.md
