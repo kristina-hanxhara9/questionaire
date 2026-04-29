@@ -21,7 +21,8 @@ env/
 uv.lock
 
 # Editor
-.vscode/
+.vscode/*
+!.vscode/mcp.json
 .idea/
 *.swp
 *.swo
@@ -35,6 +36,12 @@ Thumbs.db
 .env.local
 output/
 *.log
+
+# Your real Excel guide / PDF template / DOCX template — keep them OUT of the repo.
+# These often contain confidential client/market data.
+assets/
+!assets/.gitkeep
+!assets/README.md
 
 # Docker
 docker-compose.override.yml

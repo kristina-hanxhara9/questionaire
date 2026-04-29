@@ -1,0 +1,25 @@
+{
+  "$schema": "https://aka.ms/vscode-mcp.schema.json",
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "questionnaire-mcp-key",
+      "description": "Bearer token for the Questionnaire MCP server (one of MCP_API_KEYS).",
+      "password": true
+    },
+    {
+      "type": "promptString",
+      "id": "questionnaire-mcp-url",
+      "description": "Public HTTPS URL of the Questionnaire MCP server (e.g. https://research-mcp.example.com/mcp). For local dev, use http://localhost:8080/mcp."
+    }
+  ],
+  "servers": {
+    "questionnaire": {
+      "type": "http",
+      "url": "${input:questionnaire-mcp-url}",
+      "headers": {
+        "Authorization": "Bearer ${input:questionnaire-mcp-key}"
+      }
+    }
+  }
+}

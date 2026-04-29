@@ -1,0 +1,31 @@
+# Replace research-mcp.example.com with your actual domain.
+# Caddy will obtain and renew TLS certificates automatically.
+
+research-mcp.example.com {
+    encode zstd gzip
+    log {
+        output stdout
+        format json
+    }
+
+    # Health check passthrough (no auth needed; useful for uptime monitors).
+    @health path /healthz /readyz
+    handle @health {
+        reverse_proxy mcp:8080
+    }
+
+    # MCP endpoint — auth is enforced by the server's API-key middleware.
+    handle /mcp* {
+        reverse_proxy mcp:8080 {
+            transport http {
+                read_timeout 5m
+                write_timeout 5m
+            }
+        }
+    }
+
+    # Everything else: deny.
+    handle {
+        respond 404
+    }
+}

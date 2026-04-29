@@ -1,27 +1,35 @@
 # questionaire
 
-An MCP server that lets **Microsoft 365 Copilot Enterprise** agents generate market research questionnaires — in any language, for any country — driven by:
+An MCP server that lets **GitHub Copilot** agents generate market research questionnaires — in any language, for any country — driven by:
 
 - a multi-sheet **Excel guide** (one sheet per channel),
 - a **PDF layout reference** with `{{PLACEHOLDERS}}`,
 - a **Word `.docx` template** that renders the final document.
 
-The server is **structural, not generative**. Your Copilot agent's LLM composes the question text; this server provides deterministic tools (parse Excel, parse PDF, render DOCX, localize, translate).
+The server is **structural, not generative**. The Copilot agent's LLM composes the question text; this server provides deterministic tools (parse Excel, parse PDF, render DOCX, localize, translate).
 
-> Designed for users with Copilot Enterprise but **no Azure subscription**. The Copilot agent's LLM does the creative work; this MCP server does the structural work.
+> Designed for users with GitHub Copilot Business / Enterprise but **no Azure subscription**. Copilot's LLM does the creative work; this MCP server does the structural work.
+
+The repo ships first-class GitHub Copilot integration:
+
+- [`.vscode/mcp.json`](.vscode/mcp.json) — VS Code Copilot picks up the server automatically.
+- [`.github/agents/questionnaire-generator.agent.md`](.github/agents/questionnaire-generator.agent.md) — a custom **Questionnaire Generator** agent.
+- [`.github/prompts/generate-questionnaire.prompt.md`](.github/prompts/generate-questionnaire.prompt.md) — reusable `/generate-questionnaire` prompt.
+- [`.github/copilot-instructions.md`](.github/copilot-instructions.md) — workspace context for Copilot.
+- [`AGENTS.md`](AGENTS.md) — instructions for the GitHub Copilot **cloud coding agent**.
 
 ---
 
 ## Architecture
 
 ```
-Copilot Studio agent ──HTTPS──▶ Caddy (TLS) ──▶ FastMCP server (Streamable HTTP)
-                                                       │
-                                                       ├─ openpyxl     → channel guide
-                                                       ├─ pdfplumber   → template structure
-                                                       ├─ docxtpl      → DOCX render
-                                                       ├─ deep-translator → translation
-                                                       └─ Babel        → localization
+GitHub Copilot (VS Code or Cloud Agent) ──HTTPS──▶ Caddy (TLS) ──▶ FastMCP server (Streamable HTTP)
+                                                                        │
+                                                                        ├─ openpyxl     → channel guide
+                                                                        ├─ pdfplumber   → template structure
+                                                                        ├─ docxtpl      → DOCX render
+                                                                        ├─ deep-translator → translation
+                                                                        └─ Babel        → localization
 ```
 
 ---
@@ -89,25 +97,29 @@ The Copilot LLM calls these in sequence: discover channels → fetch guidance �
 
 ---
 
-## Connecting to Microsoft 365 Copilot
+## Connecting to GitHub Copilot
 
-### Path A — Copilot Studio (low-code, recommended)
+### Path A — VS Code Copilot Chat (recommended first)
 
-1. Expose your server on a public HTTPS URL (Caddy + a domain, or `ngrok http 8080`).
-2. Copilot Studio → **Tools** → **Add tool** → **Model Context Protocol**.
-3. Server URL: `https://<your-host>/mcp`. Auth: **API key**, header `Authorization`, value `Bearer <your-key>`.
-4. The wizard tests the connection and lists the 8 tools.
-5. **Add to agent**, enable in topics.
+The repo ships [`.vscode/mcp.json`](.vscode/mcp.json) — VS Code wires the server in automatically.
 
-### Path B — Microsoft 365 Agents Toolkit (declarative agent in VS Code)
+1. Open the repo in VS Code (with the **GitHub Copilot** + **GitHub Copilot Chat** extensions installed).
+2. **Command Palette** → **MCP: List Servers** → pick **questionnaire** → **Start Server**. VS Code prompts for the URL (`http://localhost:8080/mcp` or your production URL) and the bearer token (one of `MCP_API_KEYS`).
+3. **Copilot Chat** → switch to **Agent** mode → confirm the 8 tools are enabled in the tools picker.
+4. Try: *"Generate a social media questionnaire for Acme Corp in English."* Copilot calls `list_channels` → `get_channel_guide` → `render_questionnaire_docx` and returns a `.docx`.
 
-1. VS Code → **Microsoft 365 Agents Toolkit** → **Create a New Agent/App** → **Declarative Agent** → **Add an Action** → **Start with an MCP Server**.
-2. Paste your server URL.
-3. Open `.vscode/mcp.json` → click **Start**, then **ATK: Fetch action from MCP** → select tools.
-4. Choose **API key** auth (or OAuth static registration if you've configured an OAuth app).
-5. **Provision** → **Sideload** → test at `https://m365.cloud.microsoft/chat`.
+Bonus: the **Questionnaire Generator** custom agent ([`.github/agents/questionnaire-generator.agent.md`](.github/agents/questionnaire-generator.agent.md)) and the `/generate-questionnaire` prompt file ([`.github/prompts/generate-questionnaire.prompt.md`](.github/prompts/generate-questionnaire.prompt.md)) come pre-configured.
 
-See [`deploy/copilot-studio-setup.md`](deploy/copilot-studio-setup.md) for the click-by-click walkthrough.
+### Path B — GitHub Copilot Cloud Coding Agent
+
+1. Deploy the server to a public HTTPS URL (see [Production deployment](#production-deployment)).
+2. GitHub repo → **Settings** → **Copilot** → **Coding agent** → **Model Context Protocol** → **Add server**.
+3. Name `questionnaire`, type `http`, URL `https://<your-host>/mcp`, header `Authorization: Bearer <your-key>` (use repo / org secrets).
+4. The cloud agent reads [`AGENTS.md`](AGENTS.md) for repo conventions automatically.
+
+### Path C — Other MCP clients
+
+The same URL + bearer token works in Claude Code, Claude Desktop, Cursor, and any official MCP SDK. See [`deploy/github-copilot-setup.md`](deploy/github-copilot-setup.md) for the full walkthrough.
 
 ---
 
