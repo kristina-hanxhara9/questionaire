@@ -43,3 +43,23 @@ class LocaleNotSupportedError(QuestionnaireError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(f"Locale '{code}' is not recognized.")
+
+
+class IndustryNotFoundError(QuestionnaireError):
+    def __init__(self, industry: str, available: list[str]) -> None:
+        self.industry = industry
+        self.available = available
+        super().__init__(
+            f"Industry '{industry}' not found. Available: {', '.join(available) or '<none>'}"
+        )
+
+
+class ModuleNotFoundError(QuestionnaireError):
+    def __init__(self, module_kind: str, lookup: str, available: list[str]) -> None:
+        self.module_kind = module_kind
+        self.lookup = lookup
+        self.available = available
+        super().__init__(
+            f"{module_kind} module '{lookup}' not found. Available: "
+            f"{', '.join(available) or '<none>'}"
+        )

@@ -61,3 +61,13 @@ class RenderResult(BaseModel):
         description="Base64-encoded .docx content. Only included for files smaller than 4 MB.",
     )
     size_bytes: int = Field(description="Rendered file size in bytes.")
+
+
+class DualLanguageRenderResult(BaseModel):
+    """Result of rendering both English and a target-language version."""
+
+    english: RenderResult
+    translated: RenderResult | None = Field(
+        default=None,
+        description="None if the requested language was English (no translation needed).",
+    )

@@ -1,36 +1,40 @@
 ---
 mode: agent
-description: Generate a market research questionnaire for a specific business and channel, in any language and country. Renders a Word .docx via the questionnaire MCP server.
+description: Generate a market research questionnaire from the 3-module workbook (core + industry standard + channel-unique). Returns BOTH an English and a target-language .docx after composer / reviewer / translator pipeline.
+agent: questionnaire-orchestrator
 tools:
-  - questionnaire/list_channels
-  - questionnaire/get_channel_guide
+  - questionnaire/list_industries
+  - questionnaire/list_channels_for_industry
   - questionnaire/list_supported_languages
   - questionnaire/get_country_locale
-  - questionnaire/translate_text_blocks
-  - questionnaire/render_questionnaire_docx
+  - questionnaire/render_dual_language
 ---
 
-# Generate questionnaire
+# Generate questionnaire (multi-agent flow)
 
-You are generating a market research questionnaire and rendering it as a Word `.docx` via the `questionnaire` MCP server.
+Hand this off to the **Questionnaire Orchestrator** agent. The orchestrator routes through the composer (assemble + dedup + align), reviewer (QA), and translator (idiomatic translation) before rendering both the English and target-language `.docx`.
 
 ## Inputs
 
 - **Business:** ${input:business:Business name and 1-sentence description (industry, size, audience)}
-- **Channel:** ${input:channel:Channel — e.g. social_media, email, in_store}
-- **Language:** ${input:language:Target language — e.g. English, French, German, Arabic} (default: English)
+- **Industry:** ${input:industry:Industry slug — must match one of list_industries (e.g. opticians)}
+- **Channel:** ${input:channel:Channel slug — e.g. social_media, email, in_store}
 - **Country:** ${input:country:ISO country code — e.g. US, FR, DE, AE} (default: US)
+- **Language:** ${input:language:Target language — e.g. English, French, German, Arabic} (default: country's primary language)
 - **Audience:** ${input:audience:Who responds — existing customers, prospects, lapsed users, employees…}
 
-## Steps
+## What happens
 
-1. Call `list_channels`. If `${input:channel}` isn't an exact match, pick the closest and tell me what you chose.
-2. Call `get_channel_guide(channel)` to retrieve sections, question types, and guidance.
-3. Compose **5–15 questions per section**, tailored to the business above. Rewrite — don't copy the example fields. Use only the question types in the guide.
-4. If the language isn't English, translate idiomatically. Use `get_country_locale` to pick the right date format and to detect RTL.
-5. Call `render_questionnaire_docx` with the assembled `RenderRequest`. Set `extra_placeholders.QUESTIONNAIRE_TITLE` to a descriptive title.
-6. Return the file path / filename / base64. Offer to revise any section.
+1. **Orchestrator** validates inputs, calls `list_industries` and `list_channels_for_industry`.
+2. **Composer** calls `assemble_modules`, dedupes via `find_duplicate_candidates`, aligns sections per the canonical flow, tailors questions to the business.
+3. **Reviewer** runs the QA checklist; sends back blockers/fixes if any.
+4. **Translator** produces an idiomatic target-language version (only if requested language ≠ English).
+5. **Orchestrator** calls `render_dual_language` and returns both .docx files.
 
 ## Output
 
-A `.docx` file plus a one-paragraph summary of the research goals each section addresses.
+Two `.docx` files:
+- `<title>_en_<timestamp>.docx`
+- `<title>_<lang>_<timestamp>.docx` (only if the target language ≠ English)
+
+Plus a one-paragraph summary of the research goals each section addresses.

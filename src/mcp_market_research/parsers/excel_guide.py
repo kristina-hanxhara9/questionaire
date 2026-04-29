@@ -60,12 +60,25 @@ def clear_cache() -> None:
         _cache.clear()
 
 
+_MODULE_SHEET_PREFIXES = ("industry__", "unique__")
+_MODULE_SHEET_NAMES = ("core",)
+
+
+def _is_module_sheet(name: str) -> bool:
+    lowered = name.lower()
+    if lowered in _MODULE_SHEET_NAMES:
+        return True
+    return any(lowered.startswith(prefix) for prefix in _MODULE_SHEET_PREFIXES)
+
+
 def _parse_workbook(workbook: Workbook) -> dict[str, ChannelGuide]:
     guides: dict[str, ChannelGuide] = {}
     errors: list[str] = []
 
     for sheet_name in workbook.sheetnames:
         if sheet_name.startswith("_"):
+            continue
+        if _is_module_sheet(sheet_name):
             continue
         try:
             guides[sheet_name] = _parse_sheet(workbook[sheet_name], sheet_name)
@@ -74,11 +87,6 @@ def _parse_workbook(workbook: Workbook) -> dict[str, ChannelGuide]:
 
     if errors:
         raise ExcelGuideValidationError(errors)
-
-    if not guides:
-        raise ExcelGuideValidationError(
-            ["No channel sheets found. Add at least one sheet whose name doesn't start with '_'."]
-        )
 
     return guides
 

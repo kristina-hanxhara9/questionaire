@@ -13,7 +13,9 @@ from .errors import (
     ChannelNotFoundError,
     ConfigurationError,
     ExcelGuideValidationError,
+    IndustryNotFoundError,
     LocaleNotSupportedError,
+    ModuleNotFoundError,
     QuestionnaireError,
     RenderingError,
     TemplateExtractionError,
@@ -22,20 +24,34 @@ from .errors import (
 from .logging_setup import get_logger
 from .models import (
     ChannelGuide,
+    DualLanguageRenderResult,
+    DuplicateCandidate,
     LocaleInfo,
+    Module,
+    ModuleQuestion,
+    ModuleSet,
     Placeholder,
     RenderRequest,
     RenderResult,
     TemplateStructure,
 )
 from .tools import (
+    assemble_modules_tool,
+    find_duplicate_candidates_tool,
     get_channel_guide_tool,
+    get_core_module_tool,
     get_country_locale_tool,
+    get_industry_module_tool,
     get_template_structure_tool,
+    get_unique_module_tool,
+    list_channels_for_industry_tool,
     list_channels_tool,
+    list_industries_tool,
     list_supported_languages_tool,
     list_template_placeholders_tool,
+    render_dual_language_tool,
     render_questionnaire_docx_tool,
+    translate_questionnaire_tool,
     translate_text_blocks_tool,
 )
 
@@ -43,16 +59,46 @@ from .tools import (
 SERVER_INSTRUCTIONS = """\
 Generate market research questionnaires for businesses, in any language and country.
 
-WORKFLOW for the calling agent:
-1. Call `list_channels` to see what channels (e.g., social_media, email, in_store) are available.
-2. Call `get_channel_guide(channel)` to retrieve sections + question types + guidance + examples.
-3. Compose questions yourself using the guidance, tailored to the user's business context.
-4. Call `get_template_structure` to see the document layout (sections, placeholders).
-5. Optionally call `translate_text_blocks` if you want a deterministic translation pass; otherwise translate idiomatically yourself.
-6. Optionally call `get_country_locale` to format dates correctly for the target country.
-7. Call `render_questionnaire_docx` with the assembled JSON to produce the final .docx.
+This server supports two workflows depending on how the workbook is structured.
 
-The server is structural — it does NOT compose question text. You do that with your LLM.\
+================================================================================
+A) MODULE WORKFLOW (preferred — pre-authored questions in 3 modules)
+================================================================================
+
+The Excel workbook contains:
+  - one `core` sheet (channel-agnostic, industry-agnostic core questions, ~84)
+  - one `industry__<industry>` sheet per industry (industry standard, ~74 each)
+  - one `unique__<industry>__<channel>` sheet per industry × channel (~6 each)
+
+Workflow:
+1. Call `list_industries` and `list_channels_for_industry(industry)` to discover.
+2. Call `assemble_modules(industry, channel)` to fetch all three modules at once.
+3. Concatenate the questions, then call `find_duplicate_candidates(questions)` to
+   surface near-duplicates across modules. Use your judgment to merge or drop.
+4. Reorder/regroup sections so the questionnaire flows naturally for the audience.
+5. Run a QA pass: no double-barreled questions, options are mutually exclusive,
+   required flags are sensible, demographic/consent questions are at the end.
+6. Build a RenderRequest in English first.
+7. If a non-English target language is requested, build a SECOND RenderRequest with
+   the same structure but translated text. Translate idiomatically yourself, or fall
+   back to `translate_questionnaire` for a deterministic pass.
+8. Call `render_dual_language` to render BOTH the English and target-language .docx.
+
+================================================================================
+B) GUIDANCE WORKFLOW (fallback — workbook only has channel guidance)
+================================================================================
+
+If `list_industries` returns empty, use the legacy guidance flow:
+1. `list_channels` → `get_channel_guide(channel)` → compose questions yourself
+   from the guidance.
+2. `translate_text_blocks` (optional).
+3. `render_questionnaire_docx` with the composed payload.
+
+================================================================================
+
+Always confirm language + country with the user before rendering. The server is
+structural — it provides modules, structure, and rendering. The LLM (you) handles
+composition, dedup decisions, alignment, idiomatic translation, and QA.\
 """
 
 
@@ -176,6 +222,118 @@ def _register_tools(app: FastMCP, settings: Settings) -> None:
     def render_questionnaire_docx(payload: RenderRequest) -> RenderResult:
         return render_questionnaire_docx_tool(settings, payload)
 
+    @app.tool(
+        name="list_industries",
+        description=(
+            "List industries configured in the module workbook (one '_industry__<industry>' "
+            "sheet per entry). Empty if the workbook is in legacy guidance-only mode."
+        ),
+    )
+    def list_industries() -> list[str]:
+        return list_industries_tool(settings)
+
+    @app.tool(
+        name="list_channels_for_industry",
+        description=(
+            "List channels with a unique-question sheet for the given industry "
+            "(via 'unique__<industry>__<channel>' sheets)."
+        ),
+    )
+    def list_channels_for_industry(industry: str) -> list[str]:
+        return list_channels_for_industry_tool(settings, industry)
+
+    @app.tool(
+        name="get_core_module",
+        description=(
+            "Return the channel-agnostic, industry-agnostic CORE module — questions asked "
+            "in every questionnaire. Sourced from the workbook's 'core' sheet."
+        ),
+    )
+    def get_core_module() -> Module:
+        return get_core_module_tool(settings)
+
+    @app.tool(
+        name="get_industry_module",
+        description=(
+            "Return the INDUSTRY STANDARD module for one industry — channel-agnostic, "
+            "industry-specific questions asked in every channel for that industry."
+        ),
+    )
+    def get_industry_module(industry: str) -> Module:
+        return get_industry_module_tool(settings, industry)
+
+    @app.tool(
+        name="get_unique_module",
+        description=(
+            "Return the UNIQUE module for one industry × channel combination — the small set "
+            "of questions specific to that channel for that industry (typically ~6)."
+        ),
+    )
+    def get_unique_module(industry: str, channel: str) -> Module:
+        return get_unique_module_tool(settings, industry, channel)
+
+    @app.tool(
+        name="assemble_modules",
+        description=(
+            "Convenience: fetch all three modules (core + industry standard + unique) for "
+            "one industry × channel in a single call. The agent then aligns and dedupes."
+        ),
+    )
+    def assemble_modules(industry: str, channel: str) -> ModuleSet:
+        return assemble_modules_tool(settings, industry, channel)
+
+    @app.tool(
+        name="find_duplicate_candidates",
+        description=(
+            "Surface candidate near-duplicate question pairs by tag overlap + normalized text "
+            "similarity. The agent decides which to merge — this tool never drops questions."
+        ),
+    )
+    def find_duplicate_candidates(
+        questions: list[ModuleQuestion],
+        similarity_threshold: float = 0.78,
+    ) -> list[DuplicateCandidate]:
+        return find_duplicate_candidates_tool(
+            questions=questions, similarity_threshold=similarity_threshold
+        )
+
+    @app.tool(
+        name="translate_questionnaire",
+        description=(
+            "Deterministic translation of a fully-composed RenderRequest into another language, "
+            "preserving structure (section count, question order, options, required flags). "
+            "Prefer translating idiomatically yourself; this is a fallback."
+        ),
+    )
+    def translate_questionnaire(
+        payload: RenderRequest,
+        target_language: str,
+        source_language: str = "en",
+    ) -> RenderRequest:
+        return translate_questionnaire_tool(
+            settings,
+            payload=payload,
+            target_language=target_language,
+            source_language=source_language,
+        )
+
+    @app.tool(
+        name="render_dual_language",
+        description=(
+            "Render BOTH the English questionnaire and (optionally) the translated copy in one "
+            "call. The translated payload is rendered only if its language != 'en'."
+        ),
+    )
+    def render_dual_language(
+        english_payload: RenderRequest,
+        translated_payload: RenderRequest | None = None,
+    ) -> DualLanguageRenderResult:
+        return render_dual_language_tool(
+            settings,
+            english_payload=english_payload,
+            translated_payload=translated_payload,
+        )
+
 
 def _register_health_routes(app: FastMCP) -> None:
     @app.custom_route("/healthz", methods=["GET"])
@@ -204,6 +362,10 @@ def _wrap_with_auth(app: FastMCP, settings: Settings) -> None:
 def map_exception(exc: Exception) -> dict[str, Any]:
     """Translate domain exceptions into MCP-friendly error payloads (used by tests)."""
     if isinstance(exc, ChannelNotFoundError):
+        return {"code": -32602, "message": str(exc), "data": {"available": exc.available}}
+    if isinstance(exc, IndustryNotFoundError):
+        return {"code": -32602, "message": str(exc), "data": {"available": exc.available}}
+    if isinstance(exc, ModuleNotFoundError):
         return {"code": -32602, "message": str(exc), "data": {"available": exc.available}}
     if isinstance(exc, ExcelGuideValidationError):
         return {"code": -32602, "message": "Invalid Excel guide", "data": {"errors": exc.errors}}

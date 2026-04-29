@@ -12,6 +12,7 @@ if str(SRC) not in sys.path:
 
 SAMPLES = SRC / "mcp_market_research" / "samples"
 EXCEL_PATH = SAMPLES / "sample_channel_guide.xlsx"
+MODULES_PATH = SAMPLES / "sample_modules.xlsx"
 PDF_PATH = SAMPLES / "sample_template.pdf"
 DOCX_PATH = SAMPLES / "sample_template.docx"
 
@@ -19,7 +20,7 @@ DOCX_PATH = SAMPLES / "sample_template.docx"
 @pytest.fixture(scope="session", autouse=True)
 def ensure_samples() -> None:
     """Generate sample assets if they aren't present."""
-    if EXCEL_PATH.exists() and PDF_PATH.exists() and DOCX_PATH.exists():
+    if all(p.exists() for p in (EXCEL_PATH, MODULES_PATH, PDF_PATH, DOCX_PATH)):
         return
     sys.path.insert(0, str(ROOT / "scripts"))
     from generate_samples import main as generate
@@ -30,6 +31,11 @@ def ensure_samples() -> None:
 @pytest.fixture
 def sample_excel_path() -> Path:
     return EXCEL_PATH
+
+
+@pytest.fixture
+def sample_modules_path() -> Path:
+    return MODULES_PATH
 
 
 @pytest.fixture

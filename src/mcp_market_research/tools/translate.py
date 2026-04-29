@@ -14,6 +14,7 @@ from tenacity import (
 from ..config import Settings
 from ..errors import TranslationError
 from ..logging_setup import traced_tool
+from ..models import Question, RenderRequest, Section
 
 
 class TranslatorProtocol(Protocol):
@@ -85,3 +86,77 @@ def _translate_with_timeout(
         except Exception as err:
             raise TranslationError(f"Translation backend error: {err}") from err
     return results
+
+
+def translate_questionnaire_tool(
+    settings: Settings,
+    payload: RenderRequest,
+    target_language: str,
+    source_language: str = "en",
+) -> RenderRequest:
+    """Translate a fully-composed RenderRequest into another language while preserving
+    structure (section count, question order, options count, required flags). The
+    returned RenderRequest can be rendered directly via render_questionnaire_docx.
+
+    The agent should usually translate idiomatically itself; this is a fallback for
+    bulk pipelines or when consistency with a glossary matters more than nuance."""
+
+    @traced_tool("translate_questionnaire")
+    def _impl() -> RenderRequest:
+        target = target_language.strip().lower()
+        source = source_language.strip().lower()
+        if target == source:
+            return payload.model_copy()
+
+        all_strings: list[str] = [payload.title]
+        for section in payload.sections:
+            all_strings.append(section.heading)
+            for question in section.questions:
+                all_strings.append(question.text)
+                if question.options:
+                    all_strings.extend(question.options)
+
+        translated = translate_text_blocks_tool(
+            settings,
+            blocks=all_strings,
+            target_language=target,
+            source_language=source,
+        )
+
+        cursor = 0
+        translated_title = translated[cursor]
+        cursor += 1
+
+        new_sections: list[Section] = []
+        for section in payload.sections:
+            new_heading = translated[cursor]
+            cursor += 1
+            new_questions: list[Question] = []
+            for question in section.questions:
+                new_text = translated[cursor]
+                cursor += 1
+                new_options: list[str] | None = None
+                if question.options:
+                    n = len(question.options)
+                    new_options = translated[cursor : cursor + n]
+                    cursor += n
+                new_questions.append(
+                    Question(
+                        text=new_text,
+                        type=question.type,
+                        options=new_options,
+                        required=question.required,
+                    )
+                )
+            new_sections.append(Section(heading=new_heading, questions=new_questions))
+
+        return RenderRequest(
+            title=translated_title,
+            language=target,
+            country_code=payload.country_code,
+            company_name=payload.company_name,
+            sections=new_sections,
+            extra_placeholders={**payload.extra_placeholders, "LANGUAGE": target},
+        )
+
+    return _impl()
